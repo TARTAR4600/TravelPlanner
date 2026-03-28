@@ -882,15 +882,26 @@
 
     <div class="settings-section">
       <h3>🇨🇳 高德地图（国内推荐）</h3>
-      <div class="key-input-row">
-        <span class="key-icon">🗺</span>
-        <input type="text" id="amapKeyInput" placeholder="粘贴高德 Web API Key…"
+      <div style="font-size:12px;color:var(--text-muted);margin-bottom:10px;line-height:1.6;
+        background:var(--bg-card);border-radius:8px;padding:8px 12px;">
+        💡 需要填两个字段：<br>
+        · <b style="color:var(--text-secondary);">Key</b>：控制台应用列表里的那串32位字符<br>
+        · <b style="color:var(--text-secondary);">安全密钥</b>：同一行「安全密钥」列的字符串<br>
+        两者都用于 REST API 调用（搜索/定位/路径），<a href="https://console.amap.com/dev/key/app" target="_blank" style="color:var(--amber);">去控制台获取 →</a>
+      </div>
+      <div class="key-input-row" style="margin-bottom:8px;">
+        <span class="key-icon">🔑</span>
+        <input type="text" id="amapKeyInput" placeholder="Key（32位，如 13567077…）"
           oninput="onAmapKeyInput(this.value)">
+      </div>
+      <div class="key-input-row">
+        <span class="key-icon">🔐</span>
+        <input type="text" id="amapJscodeInput" placeholder="安全密钥（如 294e66a9…）"
+          oninput="engineConfig.amapJscode = this.value.trim()">
         <button class="btn btn-ghost btn-sm" onclick="testAmapKey()">测试</button>
       </div>
-      <div class="key-status empty" id="amapKeyStatus">
-        未设置 · <a href="https://lbs.amap.com/dev/key/app" target="_blank" style="color:var(--amber);">申请免费 Key →</a>
-        &nbsp;（创建应用 → Web端(JS API)）
+      <div class="key-status empty" id="amapKeyStatus" style="margin-top:6px;">
+        未设置
       </div>
       <div style="font-size:12px;color:var(--text-muted);margin-top:8px;line-height:1.6;">
         启用后：搜索、POI拾取、路径规划、AI定位均优先使用高德，国内精度更高
@@ -1029,7 +1040,8 @@ let routeLines = [];
 // ── Engine config ──
 let engineConfig = {
   amapKey: '',
-  strategy: 'auto', // 'auto' | 'both' | 'amap' | 'osm'
+  amapJscode: '',
+  strategy: 'auto',
 };
 
 function loadEngineConfig() {
@@ -1061,6 +1073,7 @@ function enginesFor(lat, lng) {
 function openSettingsModal() {
   loadEngineConfig();
   document.getElementById('amapKeyInput').value = engineConfig.amapKey || '';
+  document.getElementById('amapJscodeInput').value = engineConfig.amapJscode || '';
   updateAmapKeyStatus(engineConfig.amapKey);
   // Mark active strategy btn
   ['auto','both','amap','osm'].forEach(s => {
@@ -1117,6 +1130,7 @@ function setEngineStrategy(s, btn) {
 }
 function saveSettings() {
   engineConfig.amapKey = document.getElementById('amapKeyInput').value.trim();
+  engineConfig.amapJscode = document.getElementById('amapJscodeInput').value.trim();
   saveEngineConfig();
   closeSettingsModal();
   // Redraw route with new config
@@ -1490,10 +1504,16 @@ function hideSearchResults() {
 const AMAP_BASE = 'https://restapi.amap.com/v3';
 const AMAP_BASE5 = 'https://restapi.amap.com/v5';
 
+// 高德 REST API 通用参数拼接（自动附加 jscode）
+function amapParams(extraParams = '') {
+  const jscode = engineConfig.amapJscode;
+  return jscode ? `${extraParams}&jscode=${jscode}` : extraParams;
+}
+
 // 高德地理编码（地名→坐标，GCJ-02）
 async function amapGeocode(address, key) {
   key = key || engineConfig.amapKey;
-  const url = `${AMAP_BASE}/geocode/geo?address=${encodeURIComponent(address)}&key=${key}&output=json`;
+  const url = `${AMAP_BASE}/geocode/geo?address=${encodeURIComponent(address)}&key=${key}&output=json${amapParams()}`;
   const res = await fetch(url);
   const data = await res.json();
   if (data.status !== '1' || !data.geocodes?.length) return [];
@@ -1506,7 +1526,7 @@ async function amapGeocode(address, key) {
 // 高德 POI 搜索
 async function amapPoiSearch(keywords, city = '') {
   const key = engineConfig.amapKey;
-  let url = `${AMAP_BASE}/place/text?keywords=${encodeURIComponent(keywords)}&key=${key}&output=json&offset=8&extensions=base`;
+  let url = `${AMAP_BASE}/place/text?keywords=${encodeURIComponent(keywords)}&key=${key}&output=json&offset=8&extensions=base${amapParams()}`;
   if (city) url += `&city=${encodeURIComponent(city)}`;
   const res = await fetch(url);
   const data = await res.json();
@@ -1514,9 +1534,7 @@ async function amapPoiSearch(keywords, city = '') {
   return data.pois.map(p => {
     const [lng, lat] = p.location.split(',').map(Number);
     return {
-      name: p.name,
-      lat, lng,
-      source: 'amap',
+      name: p.name, lat, lng, source: 'amap',
       address: p.address || p.pname + p.cityname + p.adname,
       type: amapTypeToWpType(p.type),
     };
@@ -1526,19 +1544,15 @@ async function amapPoiSearch(keywords, city = '') {
 // 高德逆地理编码（坐标→POI名称）
 async function amapReverseGeocode(lat, lng) {
   const key = engineConfig.amapKey;
-  // 注意：高德坐标系为 GCJ-02，Leaflet 用的是 WGS-84
-  // 偏差约 100-500m，对于 POI 名称拾取可接受
-  const url = `${AMAP_BASE}/geocode/regeo?location=${lng},${lat}&key=${key}&output=json&extensions=all&radius=100&poitype=all`;
+  const url = `${AMAP_BASE}/geocode/regeo?location=${lng},${lat}&key=${key}&output=json&extensions=all&radius=100&poitype=all${amapParams()}`;
   const res = await fetch(url);
   const data = await res.json();
   if (data.status !== '1') return null;
   const info = data.regeocode;
-  // 优先返回最近 POI
   if (info.pois?.length) {
     const poi = info.pois[0];
     return { name: poi.name, type: amapTypeToWpType(poi.type), address: poi.address };
   }
-  // fallback: 道路+门牌
   const addr = info.addressComponent;
   return { name: addr.building?.name || addr.streetNumber?.street || addr.township || '未命名地点', type: 'attraction', address: info.formatted_address };
 }
@@ -1551,17 +1565,16 @@ async function amapRoute(from, to, transportMode) {
   let url, pathKey;
 
   if (transportMode === 'walk') {
-    url = `${AMAP_BASE}/direction/walking?origin=${origin}&destination=${destination}&key=${key}&output=json`;
+    url = `${AMAP_BASE}/direction/walking?origin=${origin}&destination=${destination}&key=${key}&output=json${amapParams()}`;
     pathKey = 'route';
   } else if (transportMode === 'bike') {
-    url = `${AMAP_BASE5}/direction/bicycling?origin=${origin}&destination=${destination}&key=${key}&output=json`;
+    url = `${AMAP_BASE5}/direction/bicycling?origin=${origin}&destination=${destination}&key=${key}&output=json${amapParams()}`;
     pathKey = 'data';
   } else if (transportMode === 'transit') {
-    url = `${AMAP_BASE}/direction/transit/integrated?origin=${origin}&destination=${destination}&key=${key}&output=json&city=auto&cityd=auto`;
+    url = `${AMAP_BASE}/direction/transit/integrated?origin=${origin}&destination=${destination}&key=${key}&output=json&city=auto&cityd=auto${amapParams()}`;
     pathKey = 'route';
   } else {
-    // driving
-    url = `${AMAP_BASE}/direction/driving?origin=${origin}&destination=${destination}&key=${key}&output=json&extensions=base`;
+    url = `${AMAP_BASE}/direction/driving?origin=${origin}&destination=${destination}&key=${key}&output=json&extensions=base${amapParams()}`;
     pathKey = 'route';
   }
 
@@ -1569,17 +1582,11 @@ async function amapRoute(from, to, transportMode) {
   const data = await res.json();
   if (data.status !== '1') throw new Error('高德路径: ' + data.info);
 
-  // 解析 polyline 点串
   let steps = [];
   const route = data[pathKey];
   if (transportMode === 'transit') {
     steps = route?.transits?.[0]?.segments?.flatMap(s =>
-      (s.bus?.buslines?.[0]?.polyline || s.walking?.steps?.[0]?.polyline || '')
-        .split(';').filter(Boolean)
-    ) || [];
-  } else if (transportMode === 'bike') {
-    steps = route?.paths?.[0]?.steps?.flatMap(s =>
-      (s.polyline || '').split(';').filter(Boolean)
+      (s.bus?.buslines?.[0]?.polyline || s.walking?.steps?.[0]?.polyline || '').split(';').filter(Boolean)
     ) || [];
   } else {
     steps = route?.paths?.[0]?.steps?.flatMap(s =>
@@ -1587,7 +1594,6 @@ async function amapRoute(from, to, transportMode) {
     ) || [];
   }
 
-  // 转为 [lat, lng] 数组（GCJ-02，视觉上与高德/Google 图源对齐）
   return steps.map(pt => {
     const [lng, lat] = pt.split(',').map(Number);
     return [lat, lng];
