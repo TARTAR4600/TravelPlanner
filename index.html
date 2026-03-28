@@ -1170,7 +1170,7 @@ function buildSinglePoiPopup(name, type, lat, lng) {
     <button onclick="pickPoiToModal('${name.replace(/'/g,"\\'")}','${type}',${lat},${lng})"
       style="width:100%;background:var(--teal);color:#0f1117;border:none;border-radius:7px;
         padding:7px 0;cursor:pointer;font-size:13px;font-weight:600;font-family:'Source Sans 3',sans-serif;">
-      ＋ 添加此地点
+      ✓ 一键添加到行程
     </button>
   </div>`;
 }
@@ -1197,14 +1197,32 @@ function buildPoiListPopup(pois, latlng) {
   </div>`;
 }
 
-// 选中 POI → 填入 modal
+// 选中 POI → 直接添加途径点（跳过弹窗）
 function pickPoiToModal(name, type, lat, lng) {
   if (poiPickerPopup) { map.closePopup(poiPickerPopup); poiPickerPopup = null; }
-  pendingLatLng = { lat, lng };
-  document.getElementById('newWpName').value = name;
-  document.getElementById('newWpType').value = type;
   if (poiMode) togglePoiMode();
-  openModal();
+
+  // 直接添加，不弹窗
+  const wp = {
+    id: Date.now(),
+    name,
+    type,
+    price: 0,
+    currency: '¥',
+    lat,
+    lng,
+    transport: 'car',
+    notes: '',
+    date: '',
+    duration: '',
+  };
+  trip.waypoints.push(wp);
+  renderAll();
+  saveTrip();
+
+  // 选中该点，切到详情页让用户补充费用/备注
+  selectWaypoint(wp.id);
+  switchTab('detail', document.querySelectorAll('.sidebar-tab')[1]);
 }
 
 // 纯地址反查（fallback，不用于 POI 名称）
