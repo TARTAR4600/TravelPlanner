@@ -1496,17 +1496,124 @@ function renderMarkers() {
   drawRoute();
 }
 
-function drawRoute() {
+// ══════════════════════════════════════════════
+//  ROUTE DRAWING — OSRM (免费，无需 key)
+// ══════════════════════════════════════════════
+// OSRM profile 映射（驾车/步行/骑行）
+// 航班途径点之间用直线
+const OSRM_PROFILE = {
+  car:     'driving',
+  transit: 'driving',   // OSRM 无公交，用驾车近似
+  flight:  null,        // 直线
+  walk:    'foot',
+  bike:    'bike',
+  ship:    null,        // 直线
+};
+
+// 获取两点间 OSRM 路线，返回 LatLng 数组
+async function fetchOSRMRoute(from, to, profile) {
+  const url = `https://router.project-osrm.org/route/v1/${profile}/` +
+    `${from.lng},${from.lat};${to.lng},${to.lat}` +
+    `?overview=full&geometries=geojson`;
+  const res = await fetch(url);
+  if (!res.ok) throw new Error('OSRM ' + res.status);
+  const data = await res.json();
+  if (data.code !== 'Ok' || !data.routes.length) throw new Error('no route');
+  // GeoJSON coords are [lng, lat]
+  return data.routes[0].geometry.coordinates.map(c => [c[1], c[0]]);
+}
+
+async function drawRoute() {
   clearRoutes();
   if (trip.waypoints.length < 2) return;
+
+  if (trip.routeMode === 'straight') {
+    // 直线模式
+    const coords = trip.waypoints.map(wp => [wp.lat, wp.lng]);
+    const line = L.polyline(coords, {
+      color: '#4a9eff', weight: 4, opacity: 0.7, dashArray: '8, 6',
+    }).addTo(map);
+    routeLines.push(line);
+    return;
+  }
+
+  // 跟随道路模式 — 逐段请求 OSRM
+  // 先画占位虚线
   const coords = trip.waypoints.map(wp => [wp.lat, wp.lng]);
-  const line = L.polyline(coords, {
-    color: '#d4933a',
-    weight: 2.5,
-    opacity: 0.6,
-    dashArray: '8, 6',
+  const placeholder = L.polyline(coords, {
+    color: '#2a5a8a', weight: 3, opacity: 0.4, dashArray: '4, 4',
   }).addTo(map);
-  routeLines.push(line);
+  routeLines.push(placeholder);
+
+  for (let i = 0; i < trip.waypoints.length - 1; i++) {
+    const from = trip.waypoints[i];
+    const to   = trip.waypoints[i + 1];
+    // 用「到达下一点」的交通方式决定路线类型
+    const transport = to.transport || 'car';
+    const profile = OSRM_PROFILE[transport];
+
+    try {
+      let segCoords;
+      if (!profile) {
+        // 航班/船 → 带弧度的大圆弧线
+        segCoords = greatCircleCoords([from.lat, from.lng], [to.lat, to.lng]);
+      } else {
+        segCoords = await fetchOSRMRoute(from, to, profile);
+      }
+
+      const isAir = !profile;
+      const segLine = L.polyline(segCoords, {
+        color: isAir ? '#7dd3fc' : '#4a9eff',
+        weight: isAir ? 3 : 4.5,
+        opacity: 0.8,
+        dashArray: isAir ? '6, 5' : null,
+      }).addTo(map);
+      routeLines.push(segLine);
+    } catch(e) {
+      // OSRM 失败时降级为直线
+      const fallback = L.polyline([[from.lat, from.lng],[to.lat, to.lng]], {
+        color: '#4a9eff', weight: 4, opacity: 0.6, dashArray: '8, 6',
+      }).addTo(map);
+      routeLines.push(fallback);
+    }
+
+    // 小延迟避免 OSRM 限速
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  // 移除占位虚线
+  placeholder.remove();
+  routeLines = routeLines.filter(l => l !== placeholder);
+}
+
+// 大圆弧（用于航班）：在两点之间插值 N 个点
+function greatCircleCoords(from, to, steps = 50) {
+  const toRad = d => d * Math.PI / 180;
+  const toDeg = r => r * 180 / Math.PI;
+  const [lat1, lng1] = from.map(toRad);
+  const [lat2, lng2] = to.map(toRad);
+  const coords = [];
+  for (let i = 0; i <= steps; i++) {
+    const f = i / steps;
+    const A = Math.sin((1 - f) * Math.acos(
+      Math.sin(lat1) * Math.sin(lat2) +
+      Math.cos(lat1) * Math.cos(lat2) * Math.cos(lng2 - lng1)
+    ));
+    const B = Math.sin(f * Math.acos(
+      Math.sin(lat1) * Math.sin(lat2) +
+      Math.cos(lat1) * Math.cos(lat2) * Math.cos(lng2 - lng1)
+    ));
+    const d = Math.acos(
+      Math.sin(lat1) * Math.sin(lat2) +
+      Math.cos(lat1) * Math.cos(lat2) * Math.cos(lng2 - lng1)
+    );
+    if (isNaN(d) || d === 0) { coords.push([toDeg(lat1), toDeg(lng1)]); continue; }
+    const x = (A * Math.cos(lat1) * Math.cos(lng1) + B * Math.cos(lat2) * Math.cos(lng2));
+    const y = (A * Math.cos(lat1) * Math.sin(lng1) + B * Math.cos(lat2) * Math.sin(lng2));
+    const z = (A * Math.sin(lat1) + B * Math.sin(lat2));
+    coords.push([toDeg(Math.atan2(z, Math.sqrt(x*x + y*y))), toDeg(Math.atan2(y, x))]);
+  }
+  return coords;
 }
 
 // ══════════════════════════════════════════════
@@ -1672,6 +1779,10 @@ function updateWpField(id, field, value) {
     saveTrip();
     renderWaypointsList();
     renderBudget();
+    // 交通方式变化时重绘路线
+    if (field === 'transport' && trip.routeMode === 'follow') {
+      drawRoute();
+    }
   }
 }
 
@@ -1745,7 +1856,12 @@ function setRouteMode(mode, btn) {
   trip.routeMode = mode;
   document.querySelectorAll('.route-mode-btn').forEach(b => b.classList.remove('active'));
   btn.classList.add('active');
-  drawRoute();
+  if (mode === 'follow') {
+    btn.textContent = '⏳ 路线加载中…';
+    drawRoute().finally(() => { btn.textContent = '跟随道路'; });
+  } else {
+    drawRoute();
+  }
   saveTrip();
 }
 
