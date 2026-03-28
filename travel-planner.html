@@ -1,0 +1,1265 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>旅行规划 · Travel Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600;700&family=Source+Sans+3:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --bg-deep: #0f1117;
+    --bg-panel: #161b25;
+    --bg-card: #1e2535;
+    --bg-card-hover: #252d40;
+    --amber: #d4933a;
+    --amber-light: #e8b060;
+    --amber-dim: rgba(212,147,58,0.15);
+    --teal: #3ab8d4;
+    --teal-dim: rgba(58,184,212,0.12);
+    --red: #d45a3a;
+    --green: #4caf80;
+    --purple: #8b6bd4;
+    --text-primary: #e8e4d8;
+    --text-secondary: #8a9ab5;
+    --text-muted: #4a5568;
+    --border: rgba(255,255,255,0.07);
+    --border-amber: rgba(212,147,58,0.3);
+    --shadow: 0 8px 32px rgba(0,0,0,0.5);
+    --radius: 12px;
+    --sidebar-w: 380px;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Source Sans 3', sans-serif;
+    background: var(--bg-deep);
+    color: var(--text-primary);
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Header ── */
+  header {
+    background: var(--bg-panel);
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px;
+    height: 56px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    z-index: 1000;
+  }
+
+  .logo {
+    font-family: 'Playfair Display', serif;
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--amber);
+    letter-spacing: 0.5px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  .logo span { color: var(--text-primary); font-weight: 400; font-size: 13px; margin-left: 4px; opacity: 0.6; }
+
+  .header-actions { display: flex; align-items: center; gap: 10px; }
+
+  .btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 14px; border-radius: 8px; border: none;
+    font-family: 'Source Sans 3', sans-serif;
+    font-size: 13px; font-weight: 500; cursor: pointer;
+    transition: all 0.2s;
+  }
+  .btn-ghost {
+    background: transparent; color: var(--text-secondary);
+    border: 1px solid var(--border);
+  }
+  .btn-ghost:hover { background: var(--bg-card); color: var(--text-primary); border-color: var(--border-amber); }
+  .btn-amber {
+    background: var(--amber); color: #0f1117; font-weight: 600;
+  }
+  .btn-amber:hover { background: var(--amber-light); }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+
+  /* ── Layout ── */
+  .app-body { display: flex; flex: 1; overflow: hidden; }
+
+  /* ── Map ── */
+  #map {
+    flex: 1;
+    background: #1a1f2e;
+    cursor: crosshair;
+    position: relative;
+  }
+  #map.add-mode { cursor: crosshair; }
+  #map.normal-mode { cursor: default; }
+
+  .map-hint {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    background: rgba(212,147,58,0.92); color: #0f1117;
+    font-size: 13px; font-weight: 600;
+    padding: 8px 18px; border-radius: 20px;
+    z-index: 1000; pointer-events: none;
+    display: none;
+  }
+  .map-hint.show { display: block; }
+
+  /* Leaflet overrides */
+  .leaflet-container { background: #1a1f2e !important; }
+  .leaflet-control-zoom a {
+    background: var(--bg-card) !important;
+    color: var(--text-primary) !important;
+    border-color: var(--border) !important;
+  }
+  .leaflet-control-zoom a:hover { background: var(--bg-card-hover) !important; }
+
+  /* ── Sidebar ── */
+  .sidebar {
+    width: var(--sidebar-w);
+    background: var(--bg-panel);
+    border-left: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    flex-shrink: 0;
+  }
+
+  .sidebar-tabs {
+    display: flex;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .sidebar-tab {
+    flex: 1; padding: 13px 8px; text-align: center;
+    font-size: 12px; font-weight: 500; letter-spacing: 0.5px; text-transform: uppercase;
+    color: var(--text-muted); cursor: pointer; transition: all 0.2s;
+    border-bottom: 2px solid transparent;
+  }
+  .sidebar-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+  .sidebar-tab:hover:not(.active) { color: var(--text-secondary); }
+
+  .tab-panel { display: none; flex: 1; flex-direction: column; overflow: hidden; }
+  .tab-panel.active { display: flex; }
+
+  /* ── Trip Meta ── */
+  .trip-meta {
+    padding: 16px;
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .trip-title-input {
+    width: 100%; background: transparent; border: none; outline: none;
+    font-family: 'Playfair Display', serif; font-size: 18px; color: var(--text-primary);
+    margin-bottom: 6px;
+  }
+  .trip-title-input::placeholder { color: var(--text-muted); }
+  .trip-dates { display: flex; gap: 8px; align-items: center; }
+  .trip-dates input {
+    flex: 1; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 6px; padding: 5px 8px; color: var(--text-secondary);
+    font-size: 12px; outline: none;
+  }
+  .trip-dates input:focus { border-color: var(--border-amber); }
+  .trip-dates span { color: var(--text-muted); font-size: 12px; }
+
+  /* ── Waypoint List ── */
+  .waypoints-header {
+    padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    flex-shrink: 0;
+  }
+  .waypoints-header h3 {
+    font-size: 11px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-muted);
+  }
+  .waypoints-count {
+    background: var(--amber-dim); color: var(--amber);
+    border-radius: 12px; padding: 2px 8px; font-size: 11px; font-weight: 600;
+  }
+
+  .waypoints-list {
+    flex: 1; overflow-y: auto; padding: 0 12px 12px;
+  }
+  .waypoints-list::-webkit-scrollbar { width: 4px; }
+  .waypoints-list::-webkit-scrollbar-track { background: transparent; }
+  .waypoints-list::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 4px; }
+
+  .waypoint-item {
+    background: var(--bg-card);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin-bottom: 8px;
+    overflow: hidden;
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .waypoint-item:hover { border-color: var(--border-amber); background: var(--bg-card-hover); }
+  .waypoint-item.active { border-color: var(--amber); box-shadow: 0 0 0 1px var(--amber-dim); }
+
+  .waypoint-main {
+    padding: 11px 13px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .waypoint-drag { color: var(--text-muted); cursor: grab; font-size: 14px; flex-shrink: 0; }
+  .waypoint-drag:active { cursor: grabbing; }
+
+  .waypoint-index {
+    width: 24px; height: 24px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700; flex-shrink: 0;
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .waypoint-body { flex: 1; min-width: 0; }
+  .waypoint-name {
+    font-size: 14px; font-weight: 500; color: var(--text-primary);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .waypoint-sub {
+    display: flex; align-items: center; gap: 6px; margin-top: 2px;
+  }
+  .waypoint-type-badge {
+    font-size: 10px; padding: 1px 6px; border-radius: 4px; font-weight: 600;
+  }
+  .waypoint-price {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px; color: var(--amber); flex-shrink: 0;
+  }
+
+  .waypoint-actions {
+    display: flex; gap: 4px;
+    padding: 0 8px 8px;
+  }
+  .waypoint-actions button {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text-secondary); border-radius: 6px;
+    padding: 3px 8px; font-size: 11px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .waypoint-actions button:hover { border-color: var(--border-amber); color: var(--amber); }
+  .waypoint-actions .del-btn:hover { border-color: var(--red); color: var(--red); }
+
+  /* type colors */
+  .type-accommodation { background: rgba(139,107,212,0.2); color: #b39bef; }
+  .type-attraction     { background: rgba(58,184,212,0.2); color: #5ec8e0; }
+  .type-food           { background: rgba(212,147,58,0.2); color: var(--amber-light); }
+  .type-transport      { background: rgba(76,175,128,0.2); color: #6dd4a4; }
+  .type-activity       { background: rgba(212,90,58,0.2); color: #f0875e; }
+
+  .idx-accommodation { background: rgba(139,107,212,0.3); color: #b39bef; border: 1px solid rgba(139,107,212,0.4); }
+  .idx-attraction    { background: rgba(58,184,212,0.3); color: #5ec8e0; border: 1px solid rgba(58,184,212,0.4); }
+  .idx-food          { background: rgba(212,147,58,0.3); color: var(--amber-light); border: 1px solid rgba(212,147,58,0.4); }
+  .idx-transport     { background: rgba(76,175,128,0.3); color: #6dd4a4; border: 1px solid rgba(76,175,128,0.4); }
+  .idx-activity      { background: rgba(212,90,58,0.3); color: #f0875e; border: 1px solid rgba(212,90,58,0.4); }
+
+  /* ── Detail Panel ── */
+  .detail-panel {
+    flex: 1; overflow-y: auto; padding: 16px;
+  }
+  .detail-panel::-webkit-scrollbar { width: 4px; }
+  .detail-panel::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 4px; }
+
+  .detail-empty {
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    height: 100%; gap: 12px; color: var(--text-muted);
+  }
+  .detail-empty .big-icon { font-size: 40px; opacity: 0.4; }
+  .detail-empty p { font-size: 13px; text-align: center; line-height: 1.5; }
+
+  .field-group { margin-bottom: 14px; }
+  .field-label {
+    font-size: 10px; font-weight: 600; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--text-muted); margin-bottom: 5px;
+  }
+  .field-input, .field-select, .field-textarea {
+    width: 100%; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 12px; color: var(--text-primary);
+    font-family: 'Source Sans 3', sans-serif; font-size: 14px;
+    outline: none; transition: border-color 0.2s;
+  }
+  .field-input:focus, .field-select:focus, .field-textarea:focus {
+    border-color: var(--border-amber);
+  }
+  .field-textarea { resize: vertical; min-height: 80px; }
+  .field-select option { background: var(--bg-card); }
+
+  .price-row { display: flex; gap: 8px; align-items: center; }
+  .price-row .field-input { flex: 1; }
+  .currency-sel {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    padding: 9px 8px; color: var(--text-secondary); outline: none;
+    font-size: 13px; cursor: pointer;
+  }
+  .currency-sel:focus { border-color: var(--border-amber); }
+
+  .transport-options { display: flex; gap: 6px; flex-wrap: wrap; }
+  .transport-opt {
+    padding: 6px 12px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--bg-card);
+    color: var(--text-secondary); font-size: 12px; cursor: pointer;
+    transition: all 0.15s; font-family: 'Source Sans 3', sans-serif;
+  }
+  .transport-opt.active {
+    border-color: var(--amber); background: var(--amber-dim); color: var(--amber);
+  }
+  .transport-opt:hover:not(.active) { border-color: var(--border-amber); color: var(--text-primary); }
+
+  .section-divider {
+    height: 1px; background: var(--border); margin: 16px 0;
+  }
+
+  .detail-name-input {
+    width: 100%; background: transparent; border: none; outline: none;
+    font-family: 'Playfair Display', serif; font-size: 20px;
+    color: var(--text-primary); margin-bottom: 12px;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 8px;
+  }
+  .detail-name-input:focus { border-bottom-color: var(--border-amber); }
+  .detail-name-input::placeholder { color: var(--text-muted); }
+
+  /* ── Budget Tab ── */
+  .budget-panel { flex: 1; overflow-y: auto; padding: 16px; }
+  .budget-panel::-webkit-scrollbar { width: 4px; }
+  .budget-panel::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 4px; }
+
+  .budget-summary {
+    background: var(--bg-card); border: 1px solid var(--border-amber);
+    border-radius: var(--radius); padding: 20px; margin-bottom: 16px;
+    text-align: center;
+  }
+  .budget-total-label { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); }
+  .budget-total {
+    font-family: 'Playfair Display', serif; font-size: 36px; color: var(--amber);
+    margin: 4px 0;
+  }
+  .budget-per-person { font-size: 13px; color: var(--text-secondary); }
+
+  .budget-breakdown h4 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-muted); margin-bottom: 10px;
+  }
+
+  .budget-row {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 9px 12px; background: var(--bg-card); border-radius: 8px;
+    margin-bottom: 6px;
+  }
+  .budget-row-left { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .budget-row-amount {
+    font-family: 'JetBrains Mono', monospace; font-size: 13px; color: var(--amber);
+  }
+
+  .persons-row {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 16px;
+  }
+  .persons-row label { font-size: 13px; color: var(--text-secondary); flex: 1; }
+  .persons-spinner {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px;
+    overflow: hidden;
+  }
+  .spinner-btn {
+    background: transparent; border: none; color: var(--text-secondary);
+    width: 30px; height: 30px; cursor: pointer; font-size: 16px;
+    display: flex; align-items: center; justify-content: center;
+    transition: color 0.15s;
+  }
+  .spinner-btn:hover { color: var(--amber); }
+  .spinner-val {
+    font-family: 'JetBrains Mono', monospace; font-size: 14px;
+    color: var(--text-primary); min-width: 24px; text-align: center;
+  }
+
+  /* ── Map Markers ── */
+  .custom-marker {
+    width: 32px; height: 38px; position: relative;
+  }
+  .marker-pin {
+    width: 28px; height: 28px; border-radius: 50% 50% 50% 0;
+    transform: rotate(-45deg);
+    border: 2px solid rgba(255,255,255,0.4);
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .marker-pin::after {
+    content: '';
+    width: 8px; height: 8px; border-radius: 50%;
+    background: rgba(255,255,255,0.7);
+    position: absolute;
+  }
+  .marker-label {
+    position: absolute; top: -2px; left: 50%; transform: translateX(-50%);
+    font-family: 'JetBrains Mono', monospace; font-size: 10px; font-weight: 700;
+    color: white;
+    white-space: nowrap;
+  }
+
+  /* ── Modal ── */
+  .modal-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.7);
+    display: flex; align-items: center; justify-content: center;
+    z-index: 9999; opacity: 0; pointer-events: none; transition: opacity 0.2s;
+  }
+  .modal-overlay.show { opacity: 1; pointer-events: auto; }
+  .modal {
+    background: var(--bg-panel); border: 1px solid var(--border);
+    border-radius: 16px; padding: 28px; width: 420px; max-width: 95vw;
+    box-shadow: var(--shadow);
+    transform: translateY(12px); transition: transform 0.2s;
+  }
+  .modal-overlay.show .modal { transform: translateY(0); }
+  .modal h2 {
+    font-family: 'Playfair Display', serif; font-size: 20px; margin-bottom: 20px;
+    color: var(--text-primary);
+  }
+  .modal-actions { display: flex; gap: 8px; margin-top: 24px; justify-content: flex-end; }
+
+  /* ── Route line ── */
+  .route-opts {
+    padding: 12px 16px; border-top: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+  }
+  .route-opts label { font-size: 12px; color: var(--text-muted); }
+  .route-mode-btn {
+    padding: 4px 10px; border-radius: 6px; border: 1px solid var(--border);
+    background: transparent; color: var(--text-secondary); font-size: 12px;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .route-mode-btn.active {
+    border-color: var(--teal); background: var(--teal-dim); color: var(--teal);
+  }
+
+  /* ── Responsive map popup ── */
+  .leaflet-popup-content-wrapper {
+    background: var(--bg-panel) !important;
+    border: 1px solid var(--border-amber) !important;
+    border-radius: 10px !important;
+    box-shadow: var(--shadow) !important;
+    color: var(--text-primary) !important;
+  }
+  .leaflet-popup-tip { background: var(--bg-panel) !important; }
+  .leaflet-popup-content { margin: 12px 16px !important; }
+  .popup-name { font-family: 'Playfair Display', serif; font-size: 15px; margin-bottom: 4px; }
+  .popup-meta { font-size: 12px; color: var(--text-secondary); display: flex; gap: 8px; align-items: center; }
+  .popup-price { color: var(--amber); font-family: 'JetBrains Mono', monospace; font-size: 12px; }
+
+  .add-mode-btn {
+    position: absolute; bottom: 20px; left: 20px; z-index: 1000;
+  }
+  .add-mode-btn .btn {
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+  }
+
+  /* drag highlight */
+  .waypoint-item.drag-over { border-color: var(--amber) !important; opacity: 0.7; }
+  
+  .empty-state {
+    text-align: center; padding: 32px 16px; color: var(--text-muted);
+  }
+  .empty-state .icon { font-size: 32px; margin-bottom: 8px; opacity: 0.4; }
+  .empty-state p { font-size: 13px; line-height: 1.6; }
+
+  /* trip notes */
+  .notes-panel { flex: 1; overflow-y: auto; padding: 16px; }
+  .notes-panel::-webkit-scrollbar { width: 4px; }
+  .notes-panel::-webkit-scrollbar-thumb { background: var(--text-muted); border-radius: 4px; }
+  .notes-textarea {
+    width: 100%; min-height: 200px;
+    background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px; color: var(--text-primary);
+    font-family: 'Source Sans 3', sans-serif; font-size: 14px; line-height: 1.7;
+    outline: none; resize: vertical; transition: border-color 0.2s;
+  }
+  .notes-textarea:focus { border-color: var(--border-amber); }
+
+  .export-section { margin-top: 20px; }
+  .export-section h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 1px; color: var(--text-muted); margin-bottom: 10px; }
+
+  @keyframes fade-in {
+    from { opacity: 0; transform: translateY(4px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .fade-in { animation: fade-in 0.25s ease forwards; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    ✦ <span>TRAVEL PLANNER</span>
+  </div>
+  <div class="header-actions">
+    <button class="btn btn-ghost btn-sm" onclick="exportTrip()">⬇ 导出</button>
+    <button class="btn btn-ghost btn-sm" onclick="importTrip()">⬆ 导入</button>
+    <button class="btn btn-amber btn-sm" onclick="saveTrip()">保存</button>
+  </div>
+</header>
+
+<div class="app-body">
+  <!-- Map -->
+  <div style="flex:1;position:relative;">
+    <div id="map"></div>
+    <div class="map-hint" id="mapHint">点击地图添加途径点</div>
+    <div class="add-mode-btn">
+      <button class="btn btn-amber" id="addModeBtn" onclick="toggleAddMode()">
+        <span id="addModeBtnIcon">＋</span> 添加途径点
+      </button>
+    </div>
+  </div>
+
+  <!-- Sidebar -->
+  <div class="sidebar">
+    <div class="sidebar-tabs">
+      <div class="sidebar-tab active" onclick="switchTab('itinerary', this)">行程</div>
+      <div class="sidebar-tab" onclick="switchTab('detail', this)">详情</div>
+      <div class="sidebar-tab" onclick="switchTab('budget', this)">费用</div>
+      <div class="sidebar-tab" onclick="switchTab('notes', this)">备注</div>
+    </div>
+
+    <!-- Itinerary Tab -->
+    <div class="tab-panel active" id="tab-itinerary">
+      <div class="trip-meta">
+        <input class="trip-title-input" id="tripTitle" placeholder="给你的旅行起个名字…" oninput="saveTrip()">
+        <div class="trip-dates">
+          <input type="date" id="dateStart" onchange="saveTrip()">
+          <span>→</span>
+          <input type="date" id="dateEnd" onchange="saveTrip()">
+        </div>
+      </div>
+
+      <div class="waypoints-header">
+        <h3>途径点</h3>
+        <span class="waypoints-count" id="waypointCount">0</span>
+      </div>
+
+      <div class="waypoints-list" id="waypointsList"></div>
+
+      <div class="route-opts">
+        <label>路线模式：</label>
+        <button class="route-mode-btn active" onclick="setRouteMode('straight', this)">直线</button>
+        <button class="route-mode-btn" onclick="setRouteMode('follow', this)">跟随道路</button>
+      </div>
+    </div>
+
+    <!-- Detail Tab -->
+    <div class="tab-panel" id="tab-detail">
+      <div class="detail-panel" id="detailPanel">
+        <div class="detail-empty">
+          <div class="big-icon">📍</div>
+          <p>点击左侧途径点<br>或地图标记查看详情</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Budget Tab -->
+    <div class="tab-panel" id="tab-budget">
+      <div class="budget-panel">
+        <div class="persons-row">
+          <label>旅行人数</label>
+          <div class="persons-spinner">
+            <button class="spinner-btn" onclick="changePersons(-1)">−</button>
+            <span class="spinner-val" id="personsVal">1</span>
+            <button class="spinner-btn" onclick="changePersons(1)">＋</button>
+          </div>
+        </div>
+
+        <div class="budget-summary">
+          <div class="budget-total-label">总费用估算</div>
+          <div class="budget-total" id="budgetTotal">¥ 0</div>
+          <div class="budget-per-person" id="budgetPerPerson">每人 ¥ 0</div>
+        </div>
+
+        <div class="budget-breakdown">
+          <h4>分类明细</h4>
+          <div id="budgetBreakdown"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Notes Tab -->
+    <div class="tab-panel" id="tab-notes">
+      <div class="notes-panel">
+        <div class="field-group">
+          <div class="field-label">旅行备注 / 规划思路</div>
+          <textarea class="notes-textarea" id="tripNotes" placeholder="记录你的旅行想法、注意事项、待确认事项…" oninput="saveTrip()"></textarea>
+        </div>
+        <div class="export-section">
+          <h4>分享 / 导出</h4>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;">
+            <button class="btn btn-ghost btn-sm" onclick="exportJSON()">📄 JSON 导出</button>
+            <button class="btn btn-ghost btn-sm" onclick="copyShareLink()">🔗 复制分享链接</button>
+            <button class="btn btn-ghost btn-sm" onclick="printItinerary()">🖨 打印行程</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Add Waypoint Modal -->
+<div class="modal-overlay" id="addModal">
+  <div class="modal">
+    <h2>添加途径点</h2>
+    <div class="field-group">
+      <div class="field-label">名称</div>
+      <input class="field-input" id="newWpName" placeholder="地点名称" />
+    </div>
+    <div class="field-group">
+      <div class="field-label">类型</div>
+      <select class="field-select" id="newWpType">
+        <option value="attraction">🏛 景点</option>
+        <option value="accommodation">🏨 住宿</option>
+        <option value="food">🍜 餐饮</option>
+        <option value="transport">✈ 交通</option>
+        <option value="activity">🎯 活动</option>
+      </select>
+    </div>
+    <div class="field-group">
+      <div class="field-label">预估费用</div>
+      <div class="price-row">
+        <input class="field-input" id="newWpPrice" type="number" placeholder="0" />
+        <select class="currency-sel" id="newWpCurrency">
+          <option>¥</option><option>$</option><option>€</option>
+          <option>£</option><option>HK$</option><option>¥ (JPY)</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn btn-ghost" onclick="closeModal()">取消</button>
+      <button class="btn btn-amber" onclick="confirmAddWaypoint()">添加</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════
+let trip = {
+  title: '',
+  dateStart: '',
+  dateEnd: '',
+  notes: '',
+  persons: 1,
+  waypoints: [],
+  routeMode: 'straight',
+};
+let addMode = false;
+let pendingLatLng = null;
+let activeWpId = null;
+let dragSrcIdx = null;
+let routeLines = [];
+
+// ══════════════════════════════════════════════
+//  MAP INIT
+// ══════════════════════════════════════════════
+const map = L.map('map', {
+  center: [30, 105],
+  zoom: 4,
+  zoomControl: true,
+});
+
+L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+  attribution: '© OpenStreetMap © CARTO',
+  maxZoom: 19,
+}).addTo(map);
+
+map.on('click', (e) => {
+  if (!addMode) return;
+  pendingLatLng = e.latlng;
+  openModal();
+});
+
+// ══════════════════════════════════════════════
+//  ADD MODE
+// ══════════════════════════════════════════════
+function toggleAddMode() {
+  addMode = !addMode;
+  const btn = document.getElementById('addModeBtn');
+  const hint = document.getElementById('mapHint');
+  const mapEl = document.getElementById('map');
+  if (addMode) {
+    btn.classList.add('btn-ghost');
+    btn.classList.remove('btn-amber');
+    document.getElementById('addModeBtnIcon').textContent = '✕';
+    btn.childNodes[1].textContent = ' 取消添加';
+    hint.classList.add('show');
+    mapEl.style.cursor = 'crosshair';
+  } else {
+    btn.classList.add('btn-amber');
+    btn.classList.remove('btn-ghost');
+    document.getElementById('addModeBtnIcon').textContent = '＋';
+    btn.childNodes[1].textContent = ' 添加途径点';
+    hint.classList.remove('show');
+    mapEl.style.cursor = '';
+  }
+}
+
+// ══════════════════════════════════════════════
+//  MODAL
+// ══════════════════════════════════════════════
+function openModal() {
+  document.getElementById('addModal').classList.add('show');
+  document.getElementById('newWpName').focus();
+  document.getElementById('newWpName').value = '';
+  document.getElementById('newWpPrice').value = '';
+}
+function closeModal() {
+  document.getElementById('addModal').classList.remove('show');
+  pendingLatLng = null;
+  if (addMode) toggleAddMode();
+}
+
+document.getElementById('addModal').addEventListener('click', (e) => {
+  if (e.target === document.getElementById('addModal')) closeModal();
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape') closeModal();
+  if (e.key === 'Enter' && document.getElementById('addModal').classList.contains('show')) {
+    confirmAddWaypoint();
+  }
+});
+
+function confirmAddWaypoint() {
+  const name = document.getElementById('newWpName').value.trim() || '未命名地点';
+  const type = document.getElementById('newWpType').value;
+  const price = parseFloat(document.getElementById('newWpPrice').value) || 0;
+  const currency = document.getElementById('newWpCurrency').value;
+
+  const wp = {
+    id: Date.now(),
+    name,
+    type,
+    price,
+    currency,
+    lat: pendingLatLng.lat,
+    lng: pendingLatLng.lng,
+    transport: 'car',
+    notes: '',
+    date: '',
+    duration: '',
+  };
+
+  trip.waypoints.push(wp);
+  document.getElementById('addModal').classList.remove('show');
+  if (addMode) toggleAddMode();
+  pendingLatLng = null;
+
+  renderAll();
+  selectWaypoint(wp.id);
+  switchTab('itinerary', document.querySelectorAll('.sidebar-tab')[0]);
+  saveTrip();
+}
+
+// ══════════════════════════════════════════════
+//  MARKERS
+// ══════════════════════════════════════════════
+const typeColors = {
+  accommodation: '#8b6bd4',
+  attraction: '#3ab8d4',
+  food: '#d4933a',
+  transport: '#4caf80',
+  activity: '#d45a3a',
+};
+const typeIcons = {
+  accommodation: '🏨',
+  attraction: '🏛',
+  food: '🍜',
+  transport: '✈',
+  activity: '🎯',
+};
+
+let markers = [];
+
+function clearMarkers() {
+  markers.forEach(m => m.remove());
+  markers = [];
+}
+
+function clearRoutes() {
+  routeLines.forEach(l => l.remove());
+  routeLines = [];
+}
+
+function renderMarkers() {
+  clearMarkers();
+  trip.waypoints.forEach((wp, i) => {
+    const color = typeColors[wp.type] || '#d4933a';
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="position:relative;width:32px;height:38px;">
+        <div style="width:28px;height:28px;border-radius:50% 50% 50% 0;
+          transform:rotate(-45deg);background:${color};
+          border:2px solid rgba(255,255,255,0.5);
+          box-shadow:0 4px 12px rgba(0,0,0,0.5);
+          display:flex;align-items:center;justify-content:center;">
+        </div>
+        <div style="position:absolute;top:3px;left:50%;transform:translateX(-50%);
+          font-size:11px;font-weight:700;color:white;
+          font-family:'JetBrains Mono',monospace;text-shadow:0 1px 3px rgba(0,0,0,0.8);">
+          ${i + 1}
+        </div>
+      </div>`,
+      iconSize: [32, 38],
+      iconAnchor: [14, 38],
+      popupAnchor: [0, -38],
+    });
+
+    const marker = L.marker([wp.lat, wp.lng], { icon })
+      .addTo(map)
+      .bindPopup(`
+        <div class="popup-name">${wp.name}</div>
+        <div class="popup-meta">
+          <span>${typeIcons[wp.type]} ${typeLabel(wp.type)}</span>
+          ${wp.price ? `<span class="popup-price">${wp.currency}${wp.price.toLocaleString()}</span>` : ''}
+        </div>
+      `);
+
+    marker.on('click', () => {
+      selectWaypoint(wp.id);
+      switchTab('detail', document.querySelectorAll('.sidebar-tab')[1]);
+    });
+
+    markers.push(marker);
+  });
+
+  drawRoute();
+}
+
+function drawRoute() {
+  clearRoutes();
+  if (trip.waypoints.length < 2) return;
+  const coords = trip.waypoints.map(wp => [wp.lat, wp.lng]);
+  const line = L.polyline(coords, {
+    color: '#d4933a',
+    weight: 2.5,
+    opacity: 0.6,
+    dashArray: '8, 6',
+  }).addTo(map);
+  routeLines.push(line);
+}
+
+// ══════════════════════════════════════════════
+//  WAYPOINTS LIST RENDER
+// ══════════════════════════════════════════════
+function typeLabel(t) {
+  return { accommodation:'住宿', attraction:'景点', food:'餐饮', transport:'交通', activity:'活动' }[t] || t;
+}
+
+function renderWaypointsList() {
+  const list = document.getElementById('waypointsList');
+  document.getElementById('waypointCount').textContent = trip.waypoints.length;
+
+  if (trip.waypoints.length === 0) {
+    list.innerHTML = `<div class="empty-state">
+      <div class="icon">🗺</div>
+      <p>点击地图或下方按钮<br>添加你的第一个途径点</p>
+    </div>`;
+    return;
+  }
+
+  list.innerHTML = '';
+  trip.waypoints.forEach((wp, i) => {
+    const div = document.createElement('div');
+    div.className = `waypoint-item fade-in${wp.id === activeWpId ? ' active' : ''}`;
+    div.setAttribute('data-id', wp.id);
+    div.setAttribute('data-idx', i);
+    div.draggable = true;
+    div.innerHTML = `
+      <div class="waypoint-main">
+        <span class="waypoint-drag" title="拖拽排序">⠿</span>
+        <div class="waypoint-index idx-${wp.type}">${i + 1}</div>
+        <div class="waypoint-body">
+          <div class="waypoint-name">${wp.name}</div>
+          <div class="waypoint-sub">
+            <span class="waypoint-type-badge type-${wp.type}">${typeIcons[wp.type]} ${typeLabel(wp.type)}</span>
+            ${wp.price ? `<span class="waypoint-price">${wp.currency}${wp.price.toLocaleString()}</span>` : ''}
+          </div>
+        </div>
+      </div>
+      <div class="waypoint-actions">
+        <button onclick="locateWaypoint(${wp.id})" title="定位">🎯 定位</button>
+        <button onclick="editWaypoint(${wp.id})" title="编辑">✏ 编辑</button>
+        <button class="del-btn" onclick="deleteWaypoint(${wp.id})" title="删除">✕ 删除</button>
+      </div>
+    `;
+
+    div.addEventListener('click', (e) => {
+      if (e.target.tagName === 'BUTTON') return;
+      selectWaypoint(wp.id);
+    });
+
+    // Drag events
+    div.addEventListener('dragstart', (e) => {
+      dragSrcIdx = i;
+      setTimeout(() => div.style.opacity = '0.4', 0);
+    });
+    div.addEventListener('dragend', () => { div.style.opacity = ''; });
+    div.addEventListener('dragover', (e) => { e.preventDefault(); div.classList.add('drag-over'); });
+    div.addEventListener('dragleave', () => div.classList.remove('drag-over'));
+    div.addEventListener('drop', (e) => {
+      e.preventDefault();
+      div.classList.remove('drag-over');
+      const targetIdx = parseInt(div.getAttribute('data-idx'));
+      if (dragSrcIdx !== null && dragSrcIdx !== targetIdx) {
+        const moved = trip.waypoints.splice(dragSrcIdx, 1)[0];
+        trip.waypoints.splice(targetIdx, 0, moved);
+        renderAll();
+        saveTrip();
+      }
+      dragSrcIdx = null;
+    });
+
+    list.appendChild(div);
+  });
+}
+
+// ══════════════════════════════════════════════
+//  DETAIL PANEL
+// ══════════════════════════════════════════════
+function renderDetailPanel() {
+  const panel = document.getElementById('detailPanel');
+  const wp = trip.waypoints.find(w => w.id === activeWpId);
+
+  if (!wp) {
+    panel.innerHTML = `<div class="detail-empty">
+      <div class="big-icon">📍</div>
+      <p>点击左侧途径点<br>或地图标记查看详情</p>
+    </div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <input class="detail-name-input" value="${wp.name}" placeholder="地点名称"
+      onchange="updateWpField(${wp.id},'name',this.value)">
+
+    <div class="field-group">
+      <div class="field-label">类型</div>
+      <select class="field-select" onchange="updateWpField(${wp.id},'type',this.value)">
+        ${['attraction','accommodation','food','transport','activity'].map(t =>
+          `<option value="${t}" ${wp.type===t?'selected':''}>${typeIcons[t]} ${typeLabel(t)}</option>`
+        ).join('')}
+      </select>
+    </div>
+
+    <div class="field-group">
+      <div class="field-label">日期</div>
+      <input class="field-input" type="date" value="${wp.date||''}"
+        onchange="updateWpField(${wp.id},'date',this.value)">
+    </div>
+
+    <div class="field-group">
+      <div class="field-label">费用</div>
+      <div class="price-row">
+        <input class="field-input" type="number" value="${wp.price||''}" placeholder="0"
+          onchange="updateWpField(${wp.id},'price',parseFloat(this.value)||0)">
+        <select class="currency-sel" onchange="updateWpField(${wp.id},'currency',this.value)">
+          ${['¥','$','€','£','HK$','¥ (JPY)'].map(c =>
+            `<option ${wp.currency===c?'selected':''}>${c}</option>`
+          ).join('')}
+        </select>
+      </div>
+    </div>
+
+    <div class="field-group">
+      <div class="field-label">停留时长</div>
+      <input class="field-input" value="${wp.duration||''}" placeholder="如：2小时 / 1晚"
+        onchange="updateWpField(${wp.id},'duration',this.value)">
+    </div>
+
+    <div class="section-divider"></div>
+
+    <div class="field-group">
+      <div class="field-label">到达此处的交通方式</div>
+      <div class="transport-options">
+        ${[['car','🚗 驾车'],['transit','🚇 公共交通'],['flight','✈ 航班'],['walk','🚶 步行'],['bike','🚴 骑行'],['ship','🚢 船舶']].map(([v,l]) =>
+          `<button class="transport-opt${wp.transport===v?' active':''}"
+            onclick="updateWpField(${wp.id},'transport','${v}');renderAll();saveTrip();">${l}</button>`
+        ).join('')}
+      </div>
+    </div>
+
+    <div class="section-divider"></div>
+
+    <div class="field-group">
+      <div class="field-label">备注</div>
+      <textarea class="field-textarea" placeholder="记录地址、预订信息、提示…"
+        onchange="updateWpField(${wp.id},'notes',this.value)">${wp.notes||''}</textarea>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:4px;">
+      <button class="btn btn-ghost btn-sm" onclick="locateWaypoint(${wp.id})">🎯 在地图上定位</button>
+      <button class="btn btn-ghost btn-sm" style="color:var(--red);border-color:var(--red);"
+        onclick="deleteWaypoint(${wp.id})">✕ 删除此点</button>
+    </div>
+  `;
+}
+
+function updateWpField(id, field, value) {
+  const wp = trip.waypoints.find(w => w.id === id);
+  if (wp) {
+    wp[field] = value;
+    saveTrip();
+    renderWaypointsList();
+    renderBudget();
+  }
+}
+
+// ══════════════════════════════════════════════
+//  BUDGET
+// ══════════════════════════════════════════════
+function renderBudget() {
+  const total = trip.waypoints.reduce((sum, wp) => sum + (wp.price || 0), 0);
+  const persons = trip.persons || 1;
+  document.getElementById('budgetTotal').textContent = `¥ ${total.toLocaleString()}`;
+  document.getElementById('budgetPerPerson').textContent = `每人 ¥ ${(total / persons).toLocaleString(undefined, {maximumFractionDigits:0})}`;
+
+  const byType = {};
+  trip.waypoints.forEach(wp => {
+    if (!byType[wp.type]) byType[wp.type] = 0;
+    byType[wp.type] += wp.price || 0;
+  });
+
+  const bd = document.getElementById('budgetBreakdown');
+  bd.innerHTML = Object.entries(byType).map(([type, amt]) => `
+    <div class="budget-row">
+      <div class="budget-row-left">
+        <span>${typeIcons[type]}</span>
+        <span>${typeLabel(type)}</span>
+      </div>
+      <div class="budget-row-amount">¥ ${amt.toLocaleString()}</div>
+    </div>
+  `).join('') || `<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:12px;">暂无费用数据</div>`;
+}
+
+function changePersons(delta) {
+  trip.persons = Math.max(1, (trip.persons || 1) + delta);
+  document.getElementById('personsVal').textContent = trip.persons;
+  renderBudget();
+  saveTrip();
+}
+
+// ══════════════════════════════════════════════
+//  ACTIONS
+// ══════════════════════════════════════════════
+function selectWaypoint(id) {
+  activeWpId = id;
+  renderWaypointsList();
+  renderDetailPanel();
+  const wp = trip.waypoints.find(w => w.id === id);
+  if (wp) map.setView([wp.lat, wp.lng], Math.max(map.getZoom(), 12));
+}
+
+function locateWaypoint(id) {
+  const wp = trip.waypoints.find(w => w.id === id);
+  if (wp) {
+    map.setView([wp.lat, wp.lng], 14);
+    const idx = trip.waypoints.findIndex(w => w.id === id);
+    if (markers[idx]) markers[idx].openPopup();
+  }
+}
+
+function editWaypoint(id) {
+  selectWaypoint(id);
+  switchTab('detail', document.querySelectorAll('.sidebar-tab')[1]);
+}
+
+function deleteWaypoint(id) {
+  trip.waypoints = trip.waypoints.filter(w => w.id !== id);
+  if (activeWpId === id) activeWpId = null;
+  renderAll();
+  saveTrip();
+}
+
+function setRouteMode(mode, btn) {
+  trip.routeMode = mode;
+  document.querySelectorAll('.route-mode-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  drawRoute();
+  saveTrip();
+}
+
+// ══════════════════════════════════════════════
+//  TABS
+// ══════════════════════════════════════════════
+function switchTab(name, tabEl) {
+  document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+  if (tabEl) tabEl.classList.add('active');
+  const panel = document.getElementById(`tab-${name}`);
+  if (panel) panel.classList.add('active');
+  if (name === 'detail') renderDetailPanel();
+  if (name === 'budget') renderBudget();
+}
+
+// ══════════════════════════════════════════════
+//  RENDER ALL
+// ══════════════════════════════════════════════
+function renderAll() {
+  renderWaypointsList();
+  renderMarkers();
+  renderDetailPanel();
+  renderBudget();
+}
+
+// ══════════════════════════════════════════════
+//  PERSIST
+// ══════════════════════════════════════════════
+function saveTrip() {
+  trip.title = document.getElementById('tripTitle').value;
+  trip.dateStart = document.getElementById('dateStart').value;
+  trip.dateEnd = document.getElementById('dateEnd').value;
+  trip.notes = document.getElementById('tripNotes').value;
+  try {
+    localStorage.setItem('travel_planner_trip', JSON.stringify(trip));
+  } catch(e) {}
+}
+
+function loadTrip() {
+  try {
+    const saved = localStorage.getItem('travel_planner_trip');
+    if (saved) {
+      const data = JSON.parse(saved);
+      Object.assign(trip, data);
+      document.getElementById('tripTitle').value = trip.title || '';
+      document.getElementById('dateStart').value = trip.dateStart || '';
+      document.getElementById('dateEnd').value = trip.dateEnd || '';
+      document.getElementById('tripNotes').value = trip.notes || '';
+      document.getElementById('personsVal').textContent = trip.persons || 1;
+    }
+  } catch(e) {}
+}
+
+// ══════════════════════════════════════════════
+//  EXPORT / IMPORT
+// ══════════════════════════════════════════════
+function exportJSON() {
+  saveTrip();
+  const blob = new Blob([JSON.stringify(trip, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `${trip.title || 'trip'}_${Date.now()}.json`;
+  a.click();
+}
+
+function exportTrip() { exportJSON(); }
+
+function importTrip() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.json';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target.result);
+        Object.assign(trip, data);
+        document.getElementById('tripTitle').value = trip.title || '';
+        document.getElementById('dateStart').value = trip.dateStart || '';
+        document.getElementById('dateEnd').value = trip.dateEnd || '';
+        document.getElementById('tripNotes').value = trip.notes || '';
+        document.getElementById('personsVal').textContent = trip.persons || 1;
+        activeWpId = null;
+        renderAll();
+        if (trip.waypoints.length > 0) {
+          const bounds = L.latLngBounds(trip.waypoints.map(w => [w.lat, w.lng]));
+          map.fitBounds(bounds, { padding: [40, 40] });
+        }
+      } catch(err) {
+        alert('文件格式错误，请导入有效的 JSON 文件。');
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+function copyShareLink() {
+  saveTrip();
+  const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(trip))));
+  const url = `${location.href.split('?')[0]}?trip=${encoded}`;
+  navigator.clipboard.writeText(url).then(() => {
+    alert('链接已复制！对方打开即可查看你的行程。');
+  }).catch(() => {
+    prompt('复制此链接：', url);
+  });
+}
+
+function printItinerary() {
+  saveTrip();
+  let html = `<html><head><title>${trip.title||'旅行行程'}</title>
+  <style>body{font-family:sans-serif;max-width:700px;margin:40px auto;color:#222;}
+  h1{font-size:24px;}h3{font-size:14px;color:#666;margin:20px 0 8px;}
+  .wp{border:1px solid #ddd;border-radius:8px;padding:12px 16px;margin-bottom:8px;}
+  .wp-name{font-size:16px;font-weight:600;}
+  .wp-meta{font-size:13px;color:#666;margin-top:4px;}
+  .total{font-size:20px;font-weight:700;color:#d4933a;margin-top:20px;}
+  </style></head><body>
+  <h1>${trip.title||'旅行行程'}</h1>
+  <p>${trip.dateStart||''} ${trip.dateEnd?'→ '+trip.dateEnd:''} · ${trip.persons||1}人</p>
+  <h3>途径点</h3>`;
+  trip.waypoints.forEach((wp, i) => {
+    html += `<div class="wp">
+      <div class="wp-name">${i+1}. ${wp.name}</div>
+      <div class="wp-meta">${typeLabel(wp.type)} ${wp.date?'· '+wp.date:''} ${wp.price?'· '+wp.currency+wp.price:''}</div>
+      ${wp.notes?`<div style="font-size:12px;color:#888;margin-top:4px;">${wp.notes}</div>`:''}
+    </div>`;
+  });
+  const total = trip.waypoints.reduce((s,w)=>s+(w.price||0),0);
+  html += `<div class="total">总费用：¥ ${total.toLocaleString()}</div>`;
+  if (trip.notes) html += `<h3>备注</h3><p style="font-size:14px;">${trip.notes}</p>`;
+  html += '</body></html>';
+  const w = window.open('', '_blank');
+  w.document.write(html);
+  w.document.close();
+  w.print();
+}
+
+// ══════════════════════════════════════════════
+//  URL PARAM LOAD
+// ══════════════════════════════════════════════
+function loadFromURL() {
+  const params = new URLSearchParams(location.search);
+  const encoded = params.get('trip');
+  if (encoded) {
+    try {
+      const data = JSON.parse(decodeURIComponent(escape(atob(encoded))));
+      Object.assign(trip, data);
+      document.getElementById('tripTitle').value = trip.title || '';
+      document.getElementById('dateStart').value = trip.dateStart || '';
+      document.getElementById('dateEnd').value = trip.dateEnd || '';
+      document.getElementById('tripNotes').value = trip.notes || '';
+      document.getElementById('personsVal').textContent = trip.persons || 1;
+      return true;
+    } catch(e) {}
+  }
+  return false;
+}
+
+// ══════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════
+const fromURL = loadFromURL();
+if (!fromURL) loadTrip();
+renderAll();
+if (trip.waypoints.length > 0) {
+  const bounds = L.latLngBounds(trip.waypoints.map(w => [w.lat, w.lng]));
+  map.fitBounds(bounds, { padding: [60, 60] });
+}
+</script>
+</body>
+</html>
